@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from apps.academics.models import Class
 # Create your models here.
 class Student(models.Model):
     """Profile data for a Student, linked one-to-one to a User.
@@ -15,6 +16,14 @@ settings.AUTH_USER_MODEL,
 on_delete=models.CASCADE,
 related_name='student_profile',
 help_text='The Login account this Student profile is linked to.'
+    )
+    student_class = models.ForeignKey(
+        Class,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='students',
+        help_text='The class/grade this Student is enrolled in.'
     )
     
     date_of_birth = models.DateField(null=True, blank=True, help_text='The Student\'s date of birth.')
