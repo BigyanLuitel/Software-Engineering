@@ -4,15 +4,20 @@ from .models import User
 
 
 class UserAdmin(BaseUserAdmin):
-    """
-    Extends Django's default UserAdmin so 'role' actually shows up
-    in the admin panel -- without this, the admin only knows about
-    the default User fields and hides 'role' entirely.
-    """
-    fieldsets = BaseUserAdmin.fieldsets + (
-        (None, {'fields': ('role',)}),
+    ordering = ("email",)
+    list_display = ("email", "role", "is_staff")
+    fieldsets = (
+        (None, {"fields": ("email", "password")}),
+        ("Personal info", {"fields": ("first_name", "last_name", "role")}),
+        ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
     )
-    list_display = ('username', 'email', 'role', 'is_staff')
+    add_fieldsets = (
+        (None, {
+            "classes": ("wide",),
+            "fields": ("email", "password1", "password2", "role", "is_staff", "is_superuser"),
+        }),
+    )
+    search_fields = ("email",)
 
 
 admin.site.register(User, UserAdmin)

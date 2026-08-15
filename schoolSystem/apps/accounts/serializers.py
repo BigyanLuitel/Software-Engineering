@@ -22,5 +22,5 @@ class RoleAwareTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         data['role'] = self.user.role  # also returned directly in the login response
-        data['username'] = self.user.username
+        data['username'] = self.user.email  # also returned directly in the login response
         return data
