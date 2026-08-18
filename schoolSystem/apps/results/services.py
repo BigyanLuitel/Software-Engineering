@@ -4,36 +4,33 @@ from apps.academics.models import Examination, Subject
 from .models import Result
 
 
+# (min_percentage, grade_letter, grade_point) -- checked highest-first
 GRADE_SCALE = [
-    (90, "A+"), (80, "A"), (70, "B+"), (60, "B"),
-    (50, "C+"), (40, "C"), (0, "D"),
+    (90, "A+", Decimal("4.0")),
+    (80, "A", Decimal("3.6")),
+    (70, "B+", Decimal("3.2")),
+    (60, "B", Decimal("2.8")),
+    (50, "C+", Decimal("2.4")),
+    (40, "C", Decimal("2.0")),
+    (0, "NG", Decimal("0.0")),   # anything below 40% is a fail -- pass mark is 40
 ]
 
 
-def _grade_for_percentage(percentage: Decimal) -> str:
-    for threshold, grade in GRADE_SCALE:
+def _grade_for_percentage(percentage: Decimal) -> tuple[str, Decimal]:
+    """Returns (letter_grade, grade_point) for a given percentage."""
+    for threshold, letter, point in GRADE_SCALE:
         if percentage >= threshold:
-            return grade
-    return "D"
+            return letter, point
+    return "NG", Decimal("0.0")
 
 
 @transaction.atomic
 def compute_final_result(student, academic_year: str):
     """
     Computes and writes the Final (aggregate) Result for a student,
-    for every subject they have term results in.
-
-    Design decision: this REQUIRES all 4 real terms (1st-4th) to
-    exist for the student before computing Final. A Final based on
-    only 2 or 3 terms would be silently misleading -- better to fail
-    loudly here than produce a number that looks authoritative but
-    isn't actually complete.
-
-    Averaging is done on PERCENTAGE, not raw marks_obtained -- this
-    matters if full_marks ever differs between terms (e.g. Term 1
-    out of 100, Term 3 out of 50 for some reason). Averaging raw
-    marks would silently produce a wrong result in that case;
-    averaging percentage is correct regardless.
+    for every subject they have complete term results in. Also
+    computes grade_point (0.0-4.0 scale) and passed (bool, >= 40%)
+    alongside the letter grade.
     """
 
     term_exams = Examination.objects.filter(
@@ -63,25 +60,43 @@ def compute_final_result(student, academic_year: str):
         subject_results = term_results.filter(subject_id=subject_id)
 
         if subject_results.count() != 4:
-            # This subject wasn't marked in all 4 terms for this student --
-            # skip it rather than average an incomplete set silently.
-            continue
+            continue  # incomplete term data for this subject -- skip, don't guess
 
-        percentages = [
-            (r.marks_obtained / r.full_marks) * 100 for r in subject_results
-        ]
+        percentages = [(r.marks_obtained / r.full_marks) * 100 for r in subject_results]
         avg_percentage = sum(percentages) / len(percentages)
+        letter, point = _grade_for_percentage(avg_percentage)
 
         result, _ = Result.objects.update_or_create(
-            student=student,
-            examination=final_exam,
-            subject_id=subject_id,
-            defaults={
-                "marks_obtained": round(avg_percentage, 2),
-                "full_marks": Decimal("100"),
-                "grade": _grade_for_percentage(avg_percentage),
-            },
-        )
+    student=student,
+    examination=final_exam,
+    subject_id=subject_id,
+    defaults={
+        "marks_obtained": round(avg_percentage, 2),
+        "full_marks": Decimal("100"),
+    },
+)
         computed.append(result)
 
     return computed
+
+
+def compute_gpa(student, academic_year: str) -> Decimal:
+    """
+    Overall GPA = simple average of grade_point across every subject's
+    Final result, on the standard 0.0-4.0 scale. Requires
+    compute_final_result() to have been run first for this student/year.
+    """
+    final_results = Result.objects.filter(
+        student=student,
+        examination__academic_year=academic_year,
+        examination__is_final=True,
+    )
+
+    if not final_results.exists():
+        raise ValueError(
+            f"No Final results found for {student} in {academic_year}. "
+            f"Run compute_final_result() first."
+        )
+
+    points = [r.grade_point for r in final_results]
+    return round(sum(points) / len(points), 2)
