@@ -64,3 +64,32 @@ class ClassSubject(models.Model):
     
     def __str__(self):
         return f"{self.class_obj} \u2013 {self.subject}"
+
+
+class Examination(models.Model):
+    """
+    One exam period within an academic year. Four real terms plus
+    one computed Final -- Final's marks are never entered directly,
+    they're calculated from the four terms by a service function
+    (see results app), so this table only ever holds real exam events.
+    """
+
+    class Term(models.IntegerChoices):
+        FIRST = 1, "First Term"
+        SECOND = 2, "Second Term"
+        THIRD = 3, "Third Term"
+        FOURTH = 4, "Fourth Term"
+        FINAL = 5, "Final (Aggregate)"
+
+    term = models.IntegerField(choices=Term.choices)
+    academic_year = models.CharField(max_length=9, help_text='e.g. "2025-2026"')
+    is_final = models.BooleanField(
+        default=False,
+        help_text="True only for the computed aggregate exam, never set manually for real terms.",
+    )
+
+    class Meta:
+        unique_together = ("term", "academic_year")
+
+    def __str__(self):
+        return f"{self.get_term_display()} ({self.academic_year})"
