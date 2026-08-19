@@ -42,3 +42,39 @@ def ask_assistant(student_id: int, class_id: int, query_text: str, subject_id: i
         raise AIServiceError("AI service is currently unreachable.")
     except httpx.HTTPStatusError as exc:
         raise AIServiceError(f"AI Assistant returned an error: {exc.response.text}")
+
+def generate_question_paper(class_id: int, subject_id: int, topic: str, difficulty: str, question_count: int = 10) -> list[str]:
+    payload = {
+        "class_id": class_id, "subject_id": subject_id,
+        "topic": topic, "difficulty": difficulty, "question_count": question_count,
+    }
+    try:
+        response = httpx.post(
+            f"{_base_url()}/api/ai/question-generator/generate",
+            json=payload, timeout=_timeout(),
+        )
+        response.raise_for_status()
+        return response.json()["questions"]
+    except httpx.TimeoutException:
+        raise AIServiceError("Question Paper Generator timed out. Please try again.")
+    except httpx.ConnectError:
+        raise AIServiceError("AI service is currently unreachable.")
+    except httpx.HTTPStatusError as exc:
+        raise AIServiceError(f"Question Paper Generator returned an error: {exc.response.text}")
+
+
+def ask_nl_to_sql(admin_id: int, query_text: str) -> dict:
+    payload = {"admin_id": admin_id, "query_text": query_text}
+    try:
+        response = httpx.post(
+            f"{_base_url()}/api/ai/query/ask",
+            json=payload, timeout=_timeout(),
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.TimeoutException:
+        raise AIServiceError("NL-to-SQL Agent timed out. Please try again.")
+    except httpx.ConnectError:
+        raise AIServiceError("AI service is currently unreachable.")
+    except httpx.HTTPStatusError as exc:
+        raise AIServiceError(f"NL-to-SQL Agent returned an error: {exc.response.text}")
