@@ -29,6 +29,7 @@ urlpatterns = [
     path('api/auth/', include('apps.accounts.urls')),
     path('api/students/', include('apps.students.urls')),
     path('api/teachers/', include('apps.teachers.urls')),
+    path('api/academics/', include('apps.academics.urls')),
 ]
 
 if settings.DEBUG:
