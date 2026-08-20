@@ -79,15 +79,11 @@ def _sum_prior_outstanding(student, category, before_month: str) -> Decimal:
 
 @transaction.atomic
 def record_payment(invoice: FeeInvoice, amount: Decimal):
-    """
-    Applies a payment to an invoice and updates status correctly,
-    including partial payments. This is the ONLY function that
-    should ever modify amount_paid directly -- keeps payment logic
-    in one place rather than scattered across views.
-    """
-
     if amount <= 0:
         raise ValueError("Payment amount must be positive.")
+
+    if invoice.status == FeeInvoice.Status.PAID:
+        raise ValueError("This invoice is already fully paid.")
 
     invoice.amount_paid += amount
 
