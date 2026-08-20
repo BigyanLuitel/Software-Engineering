@@ -21,7 +21,7 @@ def mark_class_attendance(class_obj, date, status_map: dict):
     results = []
 
     for student in students:
-        status = status_map.get(student.id, Attendance.Status.ABSENT)
+        status = status_map.get(str(student.id), Attendance.Status.ABSENT)
         # Default to ABSENT if a student was left out of status_map --
         # forces an explicit choice rather than silently skipping
         # students the teacher forgot to mark.
