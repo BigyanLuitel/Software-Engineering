@@ -5,7 +5,9 @@ from apps.accounts.permissions import IsAdmin, IsAdminOrTeacher
 from apps.students.models import Student
 from .models import Result
 from .serializers import ResultSerializer
-from .services import compute_final_result, compute_gpa
+from .services import compute_final_result, compute_gpa, generate_admit_cards
+from django.http import HttpResponse
+from apps.academics.models import Class, Examination
 
 
 class ResultViewSet(viewsets.ModelViewSet):
@@ -14,16 +16,32 @@ class ResultViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
-            return [IsAdminOrTeacher()]  # teachers enter term marks
+            return [IsAdminOrTeacher()]
         return [IsAdminOrTeacher()]
+
+    @action(detail=False, methods=["get"], url_path="admit-cards")
+    def admit_cards(self, request):
+        """
+        GET /api/results/admit-cards/?examination_id=1&class_id=1
+        Returns a PDF file directly, not JSON.
+        """
+        try:
+            examination = Examination.objects.get(id=request.query_params.get("examination_id"))
+            class_obj = Class.objects.get(id=request.query_params.get("class_id"))
+        except (Examination.DoesNotExist, Class.DoesNotExist):
+            return Response({"detail": "Examination or Class not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        pdf_bytes = generate_admit_cards(examination, class_obj)
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="admit_cards_{class_obj}_{examination}.pdf"'
+        return response
 
     @action(detail=False, methods=["post"], url_path="compute-final")
     def compute_final(self, request):
         """
         POST /api/results/compute-final/
         Body: {"student_id": 1, "academic_year": "2025-2026"}
-        Wraps compute_final_result() -- surfaces its ValueError
-        (e.g. incomplete term data) as a clean 400, not a raw 500 crash.
         """
         student_id = request.data.get("student_id")
         academic_year = request.data.get("academic_year")
@@ -44,9 +62,6 @@ class ResultViewSet(viewsets.ModelViewSet):
     def gpa(self, request):
         """
         GET /api/results/gpa/?student_id=1&academic_year=2025-2026
-        A GET, not POST, since this only READS existing Final results
-        -- it doesn't compute or change anything, matching HTTP
-        semantics (GET = safe, read-only).
         """
         student_id = request.query_params.get("student_id")
         academic_year = request.query_params.get("academic_year")

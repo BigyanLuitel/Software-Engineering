@@ -29,6 +29,7 @@ help_text='The Login account this Student profile is linked to.'
     date_of_birth = models.DateField(null=True, blank=True, help_text='The Student\'s date of birth.')
     gender = models.CharField(max_length=10, choices=[('M', 'Male'), ('F', 'Female'), ('O', 'Other')], null=True, blank=True, help_text='The Student\'s gender.')
     parent_name = models.CharField(max_length=100, null=True, blank=True, help_text='The name of the Student\'s parent or guardian.')
+    roll_number = models.CharField(max_length=20, blank=True, help_text="Class roll number, e.g. '14'")
     parent_contact = models.CharField(max_length=15, null=True, blank=True, help_text='The contact number of the Student\'s parent or guardian.')
     photo = models.ImageField(upload_to='student_photos/', null=True, blank=True, help_text="The Student's photo, uploaded from device.")
     
