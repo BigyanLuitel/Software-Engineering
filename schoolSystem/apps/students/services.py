@@ -24,6 +24,7 @@ DEEP_BLUE = HexColor("#2C6FA6")
 # Decorative colors
 LIGHT_BLUE = HexColor("#68B5E5")
 LIGHTER_BLUE = HexColor("#61B0E2")
+DARK_BLUE = HexColor("#1B4F7A")
 
 CARDS_PER_ROW = 3
 
@@ -311,65 +312,6 @@ def _draw_single_id_card(
         stroke=0
     )
 
-    # ========================================================
-    # DECORATIVE CIRCLES
-    #
-    # IMPORTANT:
-    # The clipping path keeps the circles INSIDE
-    # the rounded card.
-    # ========================================================
-
-    clip = c.beginPath()
-
-    clip.roundRect(
-        x,
-        y,
-        card_w,
-        card_h,
-        radius
-    )
-
-    c.saveState()
-
-    c.clipPath(
-        clip,
-        stroke=0,
-        fill=0
-    )
-
-    # --------------------------------------------------------
-    # Top-right decorative circle
-    # --------------------------------------------------------
-
-    c.setFillColor(
-        LIGHT_BLUE
-    )
-
-    c.circle(
-        x + card_w - 2 * mm,
-        y + card_h - 2 * mm,
-        16 * mm,
-        fill=1,
-        stroke=0
-    )
-
-    # --------------------------------------------------------
-    # Bottom-left decorative circle
-    # --------------------------------------------------------
-
-    c.setFillColor(
-        LIGHTER_BLUE
-    )
-
-    c.circle(
-        x + 2 * mm,
-        y + 7 * mm,
-        9 * mm,
-        fill=1,
-        stroke=0
-    )
-
-    c.restoreState()
 
     # ========================================================
     # HEADER

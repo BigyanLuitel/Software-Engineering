@@ -25,17 +25,40 @@ class Result(models.Model):
     grade = models.CharField(max_length=2, blank=True, editable=False)
     grade_point = models.DecimalField(max_digits=3, decimal_places=2, default=0, editable=False)
     passed = models.BooleanField(default=True, editable=False)
-
+    has_practical = models.BooleanField(default=False, help_text="Does this subject have a separate practical component?")
+    practical_marks = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    practical_full_marks = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, default=50)
+    practical_grade = models.CharField(max_length=2, blank=True, editable=False)
     class Meta:
         unique_together = ("student", "examination", "subject")
-
+    
     def save(self, *args, **kwargs):
-        from .services import _grade_for_percentage  # avoids a circular import at module load time
+        from .services import _grade_for_percentage
         percentage = (self.marks_obtained / self.full_marks) * 100
         self.grade, self.grade_point = _grade_for_percentage(percentage)
         self.passed = percentage >= 40
-        super().save(*args, **kwargs)
 
+        if self.has_practical and self.practical_marks is not None and self.practical_full_marks:
+            pr_percentage = (self.practical_marks / self.practical_full_marks) * 100
+            self.practical_grade, _ = _grade_for_percentage(pr_percentage)
+
+        super().save(*args, **kwargs)
     def __str__(self):
         status = "PASS" if self.passed else "FAIL"
         return f"{self.student} \u2013 {self.subject}: {self.marks_obtained}/{self.full_marks} ({self.grade}, {status})"
+
+# apps/results/models.py, new small model
+class ConductRating(models.Model):
+    """
+    Non-academic ratings shown on the marksheet's summary panel.
+    Kept separate from Result since these aren't subject-based --
+    one row per student per examination, not per subject.
+    """
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="conduct_ratings")
+    examination = models.ForeignKey(Examination, on_delete=models.CASCADE, related_name="conduct_ratings")
+    hygiene = models.CharField(max_length=20, blank=True, help_text="e.g. Excellent, Good, Satisfactory")
+    discipline = models.CharField(max_length=20, blank=True)
+    attendance_percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        unique_together = ("student", "examination")

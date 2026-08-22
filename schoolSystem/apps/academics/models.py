@@ -38,6 +38,7 @@ class Subject(models.Model):
         unique=True,
         help_text='Short code for quick reference, e.g. "MATH", "ENG", "SCI"',
     )
+    credit_hour = models.DecimalField(max_digits=3, decimal_places=1, default=4.0, help_text="Credit hours for this subject, e.g. 4.0")
 
     def __str__(self):
         return f"{self.subject_code} \u2013 {self.subject_name}"
