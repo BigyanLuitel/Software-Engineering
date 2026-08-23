@@ -9,8 +9,11 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.pdfgen import canvas
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
-
+from reportlab.platypus import (
+    BaseDocTemplate, PageTemplate, Frame, FrameBreak,
+    Table, TableStyle, Paragraph, Spacer, PageBreak, Image,
+)
+from reportlab.lib.enums import TA_LEFT
 from apps.academics.models import Examination, Class
 from apps.students.models import Student
 from apps.school.models import School
@@ -127,7 +130,6 @@ def generate_admit_cards(examination, class_obj: Class) -> bytes:
 def _draw_single_admit_card(c, x, y, student, class_obj, examination, school):
     c.rect(x, y, CARD_WIDTH, CARD_HEIGHT)
 
-    # ---- School logo, top-left ----
     logo_size = 12 * mm
     if school and school.logo:
         try:
@@ -146,12 +148,10 @@ def _draw_single_admit_card(c, x, y, student, class_obj, examination, school):
     c.setFont("Helvetica-Bold", 9)
     c.drawCentredString(x + CARD_WIDTH / 2, y + CARD_HEIGHT - 15 * mm, "ADMIT CARD")
 
-    # ---- School address: pulled from the School model, not hardcoded ----
     if school and school.address:
         c.setFont("Helvetica", 7.5)
         c.drawCentredString(x + CARD_WIDTH / 2, y + CARD_HEIGHT - 21 * mm, school.address)
 
-    # ---- Student photo, vertically centered on the right edge ----
     photo_size = 18 * mm
     photo_x = x + CARD_WIDTH - photo_size - 3 * mm
     photo_y = y + (CARD_HEIGHT - photo_size) / 2
@@ -164,7 +164,6 @@ def _draw_single_admit_card(c, x, y, student, class_obj, examination, school):
     else:
         c.rect(photo_x, photo_y, photo_size, photo_size)
 
-    # ---- Student details, left side ----
     full_name = f"{student.user.first_name} {student.user.last_name}".strip()
     display_name = full_name if full_name else student.user.email
 
@@ -173,7 +172,6 @@ def _draw_single_admit_card(c, x, y, student, class_obj, examination, school):
     c.drawString(x + 4 * mm, y + CARD_HEIGHT - 33 * mm, f"Class: {class_obj}")
     c.drawString(x + 4 * mm, y + CARD_HEIGHT - 39 * mm, f"Examination: {examination}")
 
-    # ---- Principal's signature line, bottom-right ----
     sig_line_width = 35 * mm
     sig_x = x + CARD_WIDTH - sig_line_width - 4 * mm
     sig_y = y + 8 * mm
@@ -188,30 +186,50 @@ def _draw_single_admit_card(c, x, y, student, class_obj, examination, school):
 def generate_marksheets(class_obj: Class, examination, academic_year: str) -> bytes:
     """
     One PDF, one marksheet per student, for ONE SPECIFIC examination.
+    Uses a two-frame page template: content_frame (header through
+    performance insight) flows normally; footer_frame is a FIXED
+    zone at the bottom of every page, so signatures always land in
+    the same physical position regardless of how much content is
+    above them.
     """
     school = School.objects.first()
     students = Student.objects.filter(student_class=class_obj).select_related("user")
 
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=12 * mm, bottomMargin=12 * mm, leftMargin=15 * mm, rightMargin=15 * mm)
+    page_width, page_height = A4
+    margin = 15 * mm
+    footer_height = 30 * mm
+
+    content_frame = Frame(
+        margin, margin + footer_height,
+        page_width - 2 * margin, page_height - 2 * margin - footer_height,
+        id="content",
+    )
+    footer_frame = Frame(
+        margin, margin,
+        page_width - 2 * margin, footer_height,
+        id="footer",
+    )
+
+    doc = BaseDocTemplate(buffer, pagesize=A4)
+    doc.addPageTemplates([
+        PageTemplate(id="marksheet", frames=[content_frame, footer_frame], onPage=_draw_page_border)
+    ])
 
     story = []
     for i, student in enumerate(students):
-        story.extend(_build_marksheet_flowables(student, class_obj, examination, academic_year, school))
+        story.extend(_build_marksheet_content(student, class_obj, examination, academic_year, school))
+        story.append(FrameBreak())
+        story.extend(_build_signature_block())
         if i < len(students) - 1:
             story.append(PageBreak())
 
-    doc.build(story, onFirstPage=_draw_page_border, onLaterPages=_draw_page_border)
+    doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
 
 
 def _draw_page_border(canvas_obj, doc):
-    """
-    Draws a border around the full page, once per page. This is the
-    only definition -- a duplicate of this function existed in the
-    ChatGPT version and was silently overriding the first; removed.
-    """
     canvas_obj.saveState()
     canvas_obj.setStrokeColor(colors.HexColor("#3B78A8"))
     canvas_obj.setLineWidth(0.9)
@@ -243,11 +261,17 @@ def _get_marksheet_rows(student, examination):
     return rows, overall_passed, total_credit, weighted_gp_sum
 
 
-def _build_marksheet_flowables(student, class_obj, examination, academic_year, school):
+def _build_marksheet_content(student, class_obj, examination, academic_year, school):
+    """
+    Everything EXCEPT the signature block: header, student info,
+    results table, GPA banner, legend+summary, performance insight,
+    verification note. Rendered into content_frame; the footer
+    (signatures) is built separately by _build_signature_block()
+    and rendered into the fixed footer_frame.
+    """
     styles = getSampleStyleSheet()
     center_style = ParagraphStyle("center", parent=styles["Normal"], alignment=TA_CENTER)
-
-    CONTENT_WIDTH = 180 * mm  # matches A4 (210mm) minus 15mm left + 15mm right margins
+    CONTENT_WIDTH = 180 * mm  # A4 (210mm) minus 15mm left + 15mm right margins
 
     flowables = []
 
@@ -255,8 +279,14 @@ def _build_marksheet_flowables(student, class_obj, examination, academic_year, s
     school_name = school.school_name if school else "School Name"
     school_address = school.address if (school and school.address) else ""
     school_contact = school.contact_email if (school and school.contact_email) else ""
-    header_text = f"<b><font size=14>{school_name}</font></b><br/><font size=8.5>{school_address}</font><br/><font size=8.5>{school_contact}</font>"
-
+    school_quote = school.school_quote if (school and school.school_quote) else ""
+    school_contact_number = school.school_contact_number if (school and school.school_contact_number) else ""
+    
+    header_text = f"<b><font size=14>{school_name}</font></b><br/><b><font size=8.5>Address: {school_address}</font></b><br/><b><font size=8.5>Email: {school_contact}</font></b><br/><b><font size=8.5>ContactNo: {school_contact_number}</font></b><br/><b><font size=8.5><i>{school_quote}</i></font></b>"
+    exam_name = Examination.Term(examination.term).label
+    
+    
+    header_text += f"<br/><br/><b><font size=12> {exam_name} Marksheet </font></b>"
     logo_cell = ""
     if school and school.logo:
         try:
@@ -278,17 +308,31 @@ def _build_marksheet_flowables(student, class_obj, examination, academic_year, s
 
     # ---- Student info ----
     full_name = f"{student.user.first_name} {student.user.last_name}".strip() or student.user.email
+    date_of_birth = student.date_of_birth.strftime("%d-%m-%Y") if student.date_of_birth else "N/A"
+    parent_name = student.parent_name if student.parent_name else "N/A"
+    parent_contact = student.parent_contact if student.parent_contact else "N/A"
+    
+    info_label_style = ParagraphStyle("InfoLabel", fontName="Helvetica-Bold", fontSize=8.5, leading=10, alignment=TA_LEFT)
+    info_value_style = ParagraphStyle("InfoValue", fontName="Helvetica", fontSize=8.5, leading=10, alignment=TA_LEFT)
+
     info_data = [
-        ["Name:", full_name, "Roll No.:", student.roll_number or "N/A"],
-        ["Class:", str(class_obj), "Academic Year:", academic_year],
-    ]
-    info_table = Table(info_data, colWidths=[22 * mm, 65 * mm, 28 * mm, 65 * mm])
+    [Paragraph("Name:", info_label_style), Paragraph(full_name, info_value_style), Paragraph("Roll No.:", info_label_style), Paragraph(str(student.roll_number or "N/A"), info_value_style), Paragraph("Date of Birth:", info_label_style), Paragraph(date_of_birth, info_value_style)],
+    [Paragraph("Class:", info_label_style), Paragraph(str(class_obj), info_value_style), Paragraph("Academic Year:", info_label_style), Paragraph(academic_year, info_value_style), Paragraph("Gender:", info_label_style), Paragraph(str(student.gender or "N/A"), info_value_style)],
+    [Paragraph("Parent Name:", info_label_style), Paragraph(str(parent_name), info_value_style), Paragraph("Parent Contact:", info_label_style), Paragraph(str(parent_contact), info_value_style), "", ""],
+]
+
+    info_table = Table(info_data, colWidths=[21 * mm, 37 * mm, 26 * mm, 37 * mm, 29 * mm, 26 * mm], hAlign="LEFT")
     info_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
+    ("BOX", (0, 0), (-1, -1), 0.6, colors.grey),
+    ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F2F2F2")),
+    ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#F2F2F2")),
+    ("BACKGROUND", (4, 0), (4, -1), colors.HexColor("#F2F2F2")),
+    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ("TOPPADDING", (0, 0), (-1, -1), 3),
+    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     flowables.append(info_table)
     flowables.append(Spacer(1, 5 * mm))
@@ -328,7 +372,7 @@ def _build_marksheet_flowables(student, class_obj, examination, academic_year, s
     flowables.append(gpa_table)
     flowables.append(Spacer(1, 6 * mm))
 
-    # ---- Legend + Overall Summary, side by side, each exactly half of CONTENT_WIDTH ----
+    # ---- Legend + Overall Summary, side by side ----
     legend_data = [
         ["Mark Range", "GPA", "Grade"],
         ["90 - 100", "4.0", "A+"], ["80 - 89", "3.6", "A"], ["70 - 79", "3.2", "B+"],
@@ -366,21 +410,15 @@ def _build_marksheet_flowables(student, class_obj, examination, academic_year, s
     side_by_side = Table([[legend_table, summary_table]], colWidths=[90 * mm, 90 * mm])
     side_by_side.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
     flowables.append(side_by_side)
-    flowables.append(Spacer(1, 6 * mm))
 
-    # ---- Teacher's Remarks ----
-    remarks_table = Table([["Teacher's Remarks:"], [""]], colWidths=[CONTENT_WIDTH], rowHeights=[6 * mm, 16 * mm])
-    remarks_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#A8A8A8")),
-        ("VALIGN", (0, 0), (0, 0), "TOP"),
-        ("TOPPADDING", (0, 0), (0, 0), 4), ("LEFTPADDING", (0, 0), (0, 0), 4),
-    ]))
-    flowables.append(remarks_table)
-    flowables.append(Spacer(1, 8 * mm))
+   
+   
 
-    # ---- Signatures ----
+    return flowables
+
+
+def _build_signature_block():
+    """Rendered into the fixed footer_frame -- always at the same page position, regardless of content length above."""
     issue_date = datetime.date.today().strftime("%d-%m-%Y")
     sig_data = [["_______________________", issue_date, "_______________________"], ["Class Teacher", "Date", "Principal"]]
     sig_table = Table(sig_data, colWidths=[77.5 * mm, 25 * mm, 77.5 * mm])
@@ -390,6 +428,4 @@ def _build_marksheet_flowables(student, class_obj, examination, academic_year, s
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]))
-    flowables.append(sig_table)
-
-    return flowables
+    return [Spacer(1, 12 * mm), sig_table]

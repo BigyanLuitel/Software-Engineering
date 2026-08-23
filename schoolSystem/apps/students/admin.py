@@ -1,8 +1,9 @@
 from django.contrib import admin
 from .models import Student
+from apps.accounts.models import User
 # Register your models here.
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'date_of_birth', 'gender', 'parent_name', 'parent_contact', 'photo')
+    list_display = ('user','user__first_name','user__middle_name', 'user__last_name', 'date_of_birth', 'gender', 'parent_name', 'parent_contact', 'photo')
     search_fields = ('user__email', 'user__first_name', 'user__last_name', 'parent_name', 'parent_contact')
     
