@@ -9,6 +9,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.pdfgen import canvas
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, FrameBreak,
     Table, TableStyle, Paragraph, Spacer, PageBreak, Image,
@@ -88,7 +89,7 @@ def compute_gpa(student, academic_year: str) -> Decimal:
 # ==================== ADMIT CARDS ====================
 
 CARD_WIDTH = 90 * mm
-CARD_HEIGHT = 55 * mm
+CARD_HEIGHT = 60 * mm
 CARDS_PER_ROW = 2
 MARGIN = 10 * mm
 GAP = 5 * mm
@@ -127,59 +128,116 @@ def generate_admit_cards(examination, class_obj: Class) -> bytes:
     return buffer.getvalue()
 
 
+def _fit_font_size(text, font_name, max_width, starting_size, min_size=7):
+    """
+    Returns the largest font size (down to min_size) that fits text
+    within max_width. Used for the school name specifically, since a
+    school with a long name (like this one) would otherwise overflow
+    a fixed-size card -- shrinking a few points is preferable to
+    text spilling past the card border.
+    """
+    size = starting_size
+    while size > min_size and stringWidth(text, font_name, size) > max_width:
+        size -= 0.5
+    return size
 def _draw_single_admit_card(c, x, y, student, class_obj, examination, school):
+    # ---- Outer border ----
+    c.setStrokeColor(colors.HexColor("#3B78A8"))
+    c.setLineWidth(1)
     c.rect(x, y, CARD_WIDTH, CARD_HEIGHT)
 
-    logo_size = 12 * mm
+    PAD = 4 * mm
+    logo_size = 13 * mm
+
+    # ---- Header zone: logo (left) ----
+    header_top = y + CARD_HEIGHT - PAD
     if school and school.logo:
         try:
             c.drawImage(
-                school.logo.path, x + 3 * mm, y + CARD_HEIGHT - logo_size - 3 * mm,
+                school.logo.path, x + PAD, header_top - logo_size,
                 width=logo_size, height=logo_size, preserveAspectRatio=True, mask="auto",
             )
         except Exception:
             pass
 
-    text_start_x = x + logo_size + 6 * mm if (school and school.logo) else x + 4 * mm
+    # ---- School name + address, shrink-to-fit if too wide ----
+    text_x = x + PAD + logo_size + 3 * mm if (school and school.logo) else x + PAD
+    available_width = x + CARD_WIDTH - PAD - text_x
 
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(text_start_x, y + CARD_HEIGHT - 8 * mm, school.school_name if school else "School Name")
-
-    c.setFont("Helvetica-Bold", 9)
-    c.drawCentredString(x + CARD_WIDTH / 2, y + CARD_HEIGHT - 15 * mm, "ADMIT CARD")
+    c.setFillColor(colors.black)
+    school_name = school.school_name if school else "School Name"
+    name_font_size = _fit_font_size(school_name, "Helvetica-Bold", available_width, starting_size=11)
+    c.setFont("Helvetica-Bold", name_font_size)
+    c.drawString(text_x, header_top - 4 * mm, school_name)
 
     if school and school.address:
-        c.setFont("Helvetica", 7.5)
-        c.drawCentredString(x + CARD_WIDTH / 2, y + CARD_HEIGHT - 21 * mm, school.address)
+        c.setFont("Helvetica", 7)
+        text_width = c.stringWidth(school.address, "Helvetica", 7)
+        center_x = x + CARD_WIDTH / 2
+        c.drawString(center_x - text_width / 2, header_top - 9 * mm, school.address)
 
-    photo_size = 18 * mm
-    photo_x = x + CARD_WIDTH - photo_size - 3 * mm
-    photo_y = y + (CARD_HEIGHT - photo_size) / 2
+    c.setFillColor(colors.HexColor("#2C6FA6"))
+    c.setFont("Helvetica-Bold", 9)
+    c.drawCentredString(x + CARD_WIDTH / 2, header_top - logo_size - 2 * mm, "ADMIT CARD")
+    c.setFillColor(colors.black)
+
+    # ---- Divider line under the header ----
+    divider_y = header_top - logo_size - 5 * mm
+    c.setStrokeColor(colors.HexColor("#A8A8A8"))
+    c.setLineWidth(0.5)
+    c.line(x + PAD, divider_y, x + CARD_WIDTH - PAD, divider_y)
+
+    # ---- Student photo, top-right ----
+    photo_w, photo_h = 18 * mm, 20 * mm
+    photo_x = x + CARD_WIDTH - photo_w - PAD - 5 * mm
+    photo_y = divider_y - photo_h - 2 * mm
 
     if student.photo:
         try:
-            c.drawImage(student.photo.path, photo_x, photo_y, width=photo_size, height=photo_size, preserveAspectRatio=True, mask="auto")
+            c.drawImage(student.photo.path, photo_x, photo_y, width=photo_w, height=photo_h, preserveAspectRatio=True, mask="auto")
         except Exception:
-            c.rect(photo_x, photo_y, photo_size, photo_size)
+            c.rect(photo_x, photo_y, photo_w, photo_h)
     else:
-        c.rect(photo_x, photo_y, photo_size, photo_size)
+        c.rect(photo_x, photo_y, photo_w, photo_h)
 
+    # ---- Student details, left column ----
     full_name = f"{student.user.first_name} {student.user.last_name}".strip()
     display_name = full_name if full_name else student.user.email
 
+    detail_x = x + PAD
+    detail_y = divider_y - 6 * mm
+    line_gap = 6 * mm
+
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(detail_x, detail_y, "Student:")
     c.setFont("Helvetica", 8)
-    c.drawString(x + 4 * mm, y + CARD_HEIGHT - 27 * mm, f"Student: {display_name}")
-    c.drawString(x + 4 * mm, y + CARD_HEIGHT - 33 * mm, f"Class: {class_obj}")
-    c.drawString(x + 4 * mm, y + CARD_HEIGHT - 39 * mm, f"Examination: {examination}")
+    c.drawString(detail_x + 15 * mm, detail_y, display_name)
 
-    sig_line_width = 35 * mm
-    sig_x = x + CARD_WIDTH - sig_line_width - 4 * mm
-    sig_y = y + 8 * mm
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(detail_x, detail_y - line_gap, "Class:")
+    c.setFont("Helvetica", 8)
+    c.drawString(detail_x + 15 * mm, detail_y - line_gap, str(class_obj))
 
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(detail_x, detail_y - 2 * line_gap, "Roll No:")
+    c.setFont("Helvetica", 8)
+    c.drawString(detail_x + 15 * mm, detail_y - 2 * line_gap, student.roll_number or "N/A")
+
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(detail_x, detail_y - 3 * line_gap, "Exam:")
+    c.setFont("Helvetica", 8)
+    c.drawString(detail_x + 15 * mm, detail_y - 3 * line_gap, str(examination))
+
+    # ---- Signature line, bottom-right ----
+    sig_line_width = 32 * mm
+    sig_x = x + CARD_WIDTH - sig_line_width - PAD
+    sig_y = y + PAD + 4 * mm
+
+    c.setStrokeColor(colors.HexColor("#3B78A8"))
+    c.setLineWidth(0.5)
     c.line(sig_x, sig_y, sig_x + sig_line_width, sig_y)
     c.setFont("Helvetica", 6)
     c.drawCentredString(sig_x + sig_line_width / 2, sig_y - 3 * mm, "Principal's Signature")
-
 
 # ==================== MARKSHEET ====================
 
