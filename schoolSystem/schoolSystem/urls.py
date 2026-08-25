@@ -36,6 +36,7 @@ urlpatterns = [
     path('api/library/', include('apps.library.urls')),
     path('api/reports/', include('apps.reports.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
+    path('api/ai/', include('apps.aiproxy.urls')),
 ]
 
 if settings.DEBUG:
