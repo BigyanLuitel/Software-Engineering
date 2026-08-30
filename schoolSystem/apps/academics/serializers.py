@@ -4,11 +4,16 @@ from .models import Class, Subject, ClassSubject, Examination
 
 class ClassSerializer(serializers.ModelSerializer):
     teacher_email = serializers.EmailField(source="teacher.email", read_only=True, allow_null=True)
+    teacher_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Class
-        fields = ["id", "class_name", "section", "teacher", "teacher_email"]
+        fields = ["id", "class_name", "section", "teacher", "teacher_email", "teacher_name"]
 
+    def get_teacher_name(self, obj):
+        if obj.teacher:
+            return f"{obj.teacher.first_name} {obj.teacher.last_name}".strip()
+        return None
 
 class SubjectSerializer(serializers.ModelSerializer):
     class Meta:

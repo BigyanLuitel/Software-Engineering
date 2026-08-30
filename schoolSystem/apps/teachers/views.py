@@ -1,7 +1,7 @@
 from rest_framework import viewsets, permissions
 from apps.accounts.permissions import IsAdmin, IsAdminOrTeacher
 from .models import  Teacher
-from .serializers import  TeacherSerializer, TeacherSerializer
+from .serializers import  TeacherSerializer
 
 
 class TeacherViewSet(viewsets.ModelViewSet):

@@ -1,10 +1,9 @@
 from django.db import models
 from django.conf import settings
+from apps.academics.models import Subject
 
 
 class Teacher(models.Model):
-    """Profile data for a Teacher, linked one-to-one to a User."""
-
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -14,7 +13,12 @@ class Teacher(models.Model):
 
     qualification = models.CharField(max_length=200, null=True, blank=True, help_text="The Teacher's academic qualification.")
     contact = models.CharField(max_length=15, null=True, blank=True, help_text="The Teacher's contact number.")
-    subject = models.CharField(max_length=100, null=True, blank=True, help_text="The subject the Teacher primarily teaches.")
+    subjects = models.ManyToManyField(
+        Subject,
+        blank=True,
+        related_name="teachers",
+        help_text="The subject(s) this Teacher teaches.",
+    )
 
     def __str__(self):
         return f"{self.user.email} - {self.user.first_name} {self.user.last_name}"
