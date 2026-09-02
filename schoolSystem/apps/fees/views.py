@@ -3,11 +3,13 @@ from decimal import Decimal, InvalidOperation
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from apps.accounts.permissions import IsAdmin
+from apps.accounts.permissions import IsAdmin, IsAdminOrTeacher, IsStudent
 from .models import FeeCategory, FeeStructure, FeeInvoice
 from .serializers import FeeCategorySerializer, FeeStructureSerializer, FeeInvoiceSerializer
-from .services import generate_monthly_invoices, record_payment
-
+from .services import generate_monthly_invoices, generate_student_monthly_bill, record_payment
+from django.http import HttpResponse
+from apps.students.models import Student
+from .services import generate_monthly_invoices, record_payment, generate_student_monthly_bill
 
 class FeeCategoryViewSet(viewsets.ModelViewSet):
     queryset = FeeCategory.objects.all()
@@ -25,6 +27,21 @@ class FeeInvoiceViewSet(viewsets.ModelViewSet):
     queryset = FeeInvoice.objects.select_related("student__user", "fee_category").all()
     serializer_class = FeeInvoiceSerializer
     permission_classes = [IsAdmin]
+    def get_permissions(self):
+        if self.action == "me":
+            return [IsStudent()]
+        return [IsAdmin()]
+
+    @action(detail=False, methods=["get"], url_path="me", permission_classes=[IsStudent])
+    def me(self, request):
+        """GET /api/fees/invoices/me/ -- a student's own invoices only."""
+        try:
+            student = Student.objects.get(user=request.user)
+        except Student.DoesNotExist:
+            return Response({"detail": "No student profile found for this account."}, status=status.HTTP_404_NOT_FOUND)
+
+        invoices = FeeInvoice.objects.filter(student=student).select_related("fee_category")
+        return Response(FeeInvoiceSerializer(invoices, many=True).data)
 
     @action(detail=False, methods=["post"], url_path="generate-monthly")
     def generate_monthly(self, request):
@@ -64,3 +81,21 @@ class FeeInvoiceViewSet(viewsets.ModelViewSet):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(FeeInvoiceSerializer(updated_invoice).data, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=["get"], url_path="bill")
+    def bill(self, request):
+        student_id = request.query_params.get("student_id")
+        month = request.query_params.get("month")
+
+        try:
+            student = Student.objects.get(id=student_id)
+        except Student.DoesNotExist:
+            return Response({"detail": "Student not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not month:
+            return Response({"detail": "month is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        pdf_bytes = generate_student_monthly_bill(student, month)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="bill_{student.id}_{month}.pdf"'
+        return response

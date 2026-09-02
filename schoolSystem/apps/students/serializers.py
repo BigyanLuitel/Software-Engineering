@@ -14,20 +14,20 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = [
             "id", "email", "first_name", "last_name", "password",
-            "student_class", "date_of_birth", "gender",
+            "student_class", "date_of_birth", "gender", "roll_number",
             "parent_name", "parent_contact", "photo",
         ]
 
-        def validate(self, attrs):
-            if self.instance is None and not attrs.get("password"):
-                raise serializers.ValidationError({"password": "Required when creating a new student."})
+    def validate(self, attrs):
+        if self.instance is None and not attrs.get("password"):
+            raise serializers.ValidationError({"password": "Required when creating a new student."})
 
-            if self.instance is None:
-                email = attrs.get("user", {}).get("email")
-                if email and User.objects.filter(email=email).exists():
-                    raise serializers.ValidationError({"email": "A user with this email already exists."})
+        if self.instance is None:
+            email = attrs.get("user", {}).get("email")
+            if email and User.objects.filter(email=email).exists():
+                raise serializers.ValidationError({"email": "A user with this email already exists."})
 
-            return attrs
+        return attrs
 
     def create(self, validated_data):
         user_data = validated_data.pop("user")
@@ -47,7 +47,7 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop("user", None)
-        validated_data.pop("password", None)  # editing a profile never silently changes the password
+        validated_data.pop("password", None)
 
         if user_data:
             for attr, value in user_data.items():

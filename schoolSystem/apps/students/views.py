@@ -11,6 +11,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 
+from apps.accounts.permissions import IsAdmin, IsAdminOrTeacher, IsStudent
+
 
 class StudentViewSet(viewsets.ModelViewSet):
     """
@@ -24,11 +26,23 @@ class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.select_related("user", "student_class").all()
     serializer_class = StudentSerializer
 
+
     def get_permissions(self):
+        if self.action == "me":
+            return [IsStudent()]
         if self.action in ["create", "update", "partial_update", "destroy"]:
             return [IsAdmin()]
         return [IsAdminOrTeacher()]
-    # add this method inside your existing StudentViewSet class
+
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        """GET /api/students/me/ -- the logged-in student's own profile."""
+        try:
+            student = Student.objects.get(user=request.user)
+        except Student.DoesNotExist:
+            return Response({"detail": "No student profile found for this account."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(StudentSerializer(student, context={"request": request}).data)
     @action(detail=False, methods=["get"], url_path="id-cards")
     def id_cards(self, request):
         """

@@ -50,7 +50,8 @@ LOCAL_APPS = [
     'apps.library',        # Library + Circulation
     'apps.reports',
     'apps.notifications',
-    'apps.aiproxy',        # thin client that calls the FastAPI AI service
+    'apps.aiproxy', # thin client that calls the FastAPI AI service
+    'apps.assignments', # Assignment and Submission
 ]
 
 INSTALLED_APPS = [

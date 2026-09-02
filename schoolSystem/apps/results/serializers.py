@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Result
+from .models import Result, ResultPublication
 
 
 class ResultSerializer(serializers.ModelSerializer):
@@ -15,3 +15,7 @@ class ResultSerializer(serializers.ModelSerializer):
             "grade", "grade_point", "passed",
         ]
         read_only_fields = ["grade", "grade_point", "passed"]  # these are auto-computed in Result.save()
+class ResultPublicationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ResultPublication
+        fields = ["id", "examination", "class_obj"]

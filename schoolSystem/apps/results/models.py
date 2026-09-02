@@ -1,6 +1,7 @@
 from django.db import models
 from apps.students.models import Student
 from apps.academics.models import Examination, Subject
+from apps.academics.models import Class
 
 
 class Result(models.Model):
@@ -62,3 +63,23 @@ class ConductRating(models.Model):
 
     class Meta:
         unique_together = ("student", "examination")
+
+from apps.academics.models import Class
+
+
+class ResultPublication(models.Model):
+    """
+    Marks one (examination, class) combination as published -- i.e.
+    visible to students in that class. Results are entered per
+    student/subject, but released as a whole class+exam unit, since
+    a teacher finishes a whole class's marks together and admin
+    reviews/releases them as one action, not subject-by-subject.
+
+    Existence of a row = published. Deleting it = unpublished.
+    """
+    examination = models.ForeignKey(Examination, on_delete=models.CASCADE, related_name="publications")
+    class_obj = models.ForeignKey(Class, on_delete=models.CASCADE, related_name="result_publications")
+    published_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("examination", "class_obj")
