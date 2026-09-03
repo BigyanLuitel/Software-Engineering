@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import FeeCategory, FeeStructure, FeeInvoice
+from .models import FeeCategory, FeeStructure, FeeInvoice, StudentFeeAssignment
 
 
 class FeeCategorySerializer(serializers.ModelSerializer):
@@ -31,3 +31,12 @@ class FeeInvoiceSerializer(serializers.ModelSerializer):
             "total_due", "outstanding",
         ]
         read_only_fields = ["status"]  # status is derived by record_payment(), never set directly by a client
+
+
+class StudentFeeAssignmentSerializer(serializers.ModelSerializer):
+    student_email = serializers.EmailField(source="student.user.email", read_only=True)
+    category_name = serializers.CharField(source="fee_category.name", read_only=True)
+
+    class Meta:
+        model = StudentFeeAssignment
+        fields = ["id", "student", "student_email", "fee_category", "category_name", "amount", "is_active"]

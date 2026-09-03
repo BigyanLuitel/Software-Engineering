@@ -4,8 +4,8 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from apps.accounts.permissions import IsAdmin, IsAdminOrTeacher, IsStudent
-from .models import FeeCategory, FeeStructure, FeeInvoice
-from .serializers import FeeCategorySerializer, FeeStructureSerializer, FeeInvoiceSerializer
+from .models import FeeCategory, FeeStructure, FeeInvoice, StudentFeeAssignment
+from .serializers import FeeCategorySerializer, FeeStructureSerializer, FeeInvoiceSerializer, StudentFeeAssignmentSerializer
 from .services import generate_monthly_invoices, generate_student_monthly_bill, record_payment
 from django.http import HttpResponse
 from apps.students.models import Student
@@ -99,3 +99,15 @@ class FeeInvoiceViewSet(viewsets.ModelViewSet):
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="bill_{student.id}_{month}.pdf"'
         return response
+
+class StudentFeeAssignmentViewSet(viewsets.ModelViewSet):
+    queryset = StudentFeeAssignment.objects.select_related("student__user", "fee_category").all()
+    serializer_class = StudentFeeAssignmentSerializer
+    permission_classes = [IsAdmin]
+
+    @action(detail=False, methods=["get"], url_path="for-student")
+    def for_student(self, request):
+        """GET /api/fees/student-assignments/for-student/?student_id=1"""
+        student_id = request.query_params.get("student_id")
+        assignments = StudentFeeAssignment.objects.filter(student_id=student_id, is_active=True).select_related("fee_category")
+        return Response(StudentFeeAssignmentSerializer(assignments, many=True).data)

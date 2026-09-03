@@ -77,3 +77,26 @@ class FeeInvoice(models.Model):
 
     def __str__(self):
         return f"{self.student} \u2013 {self.fee_category} \u2013 {self.month}: {self.outstanding} outstanding"
+
+class StudentFeeAssignment(models.Model):
+    """
+    An extra, per-student fee assignment (bus, computer, misc, etc.)
+    -- distinct from FeeStructure, which is a flat class-wide rate.
+    A student can have zero or more of these; they're added to
+    whatever the class-wide FeeStructure already charges when
+    generating that student's monthly invoices.
+    """
+
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="fee_assignments")
+    fee_category = models.ForeignKey(FeeCategory, on_delete=models.CASCADE, related_name="student_assignments")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Inactive assignments are excluded from invoice generation without deleting the record.",
+    )
+
+    class Meta:
+        unique_together = ("student", "fee_category")
+
+    def __str__(self):
+        return f"{self.student} \u2013 {self.fee_category.name}: {self.amount}"

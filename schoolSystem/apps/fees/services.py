@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from django.db import transaction
 from apps.students.models import Student
-from .models import FeeCategory, FeeStructure, FeeInvoice
+
 from django.db.models import Sum
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
@@ -12,21 +12,19 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 from apps.school.models import School
+from .models import FeeCategory, FeeStructure, FeeInvoice, StudentFeeAssignment
 
 
 @transaction.atomic
 def generate_monthly_invoices(month: str, due_date: date, academic_year: str):
     """
     Generates this month's FeeInvoice for every Student, for every
-    RECURRING FeeCategory (Tuition, etc.) -- one-time categories
-    (Admission) are never auto-generated here, they're created
-    manually once when actually charged.
-
-    Carries forward unpaid balance: if a student has an outstanding
-    invoice from ANY prior month in the same category, that
-    outstanding amount becomes this month's previous_due. This is
-    what makes "previous dues roll into next month" actually happen,
-    rather than being a manual step someone has to remember.
+    RECURRING FeeCategory -- from TWO sources: the class-wide
+    FeeStructure rate, AND any active per-student StudentFeeAssignment
+    (bus, computer, etc.) for that same category. If a student has
+    BOTH a class-wide rate and a personal assignment for the same
+    category, the personal assignment's amount is used instead of
+    the class-wide one -- it's more specific, so it wins.
     """
 
     recurring_categories = FeeCategory.objects.filter(is_recurring=True)
@@ -34,20 +32,28 @@ def generate_monthly_invoices(month: str, due_date: date, academic_year: str):
 
     for student in Student.objects.select_related("student_class"):
         if not student.student_class:
-            continue  # can't bill a student with no class assigned -- no fee structure to look up
+            continue
+
+        student_assignments = {
+            a.fee_category_id: a.amount
+            for a in StudentFeeAssignment.objects.filter(student=student, is_active=True)
+        }
 
         for category in recurring_categories:
-            structure = FeeStructure.objects.filter(
-                class_obj=student.student_class,
-                fee_category=category,
-                academic_year=academic_year,
-            ).first()
-
-            if not structure:
-                continue  # this class has no defined rate for this category -- skip rather than guess
-
             if FeeInvoice.objects.filter(student=student, fee_category=category, month=month).exists():
-                continue  # already generated -- safe to re-run this function without creating duplicates
+                continue
+
+            amount = student_assignments.get(category.id)
+
+            if amount is None:
+                structure = FeeStructure.objects.filter(
+                    class_obj=student.student_class,
+                    fee_category=category,
+                    academic_year=academic_year,
+                ).first()
+                if not structure:
+                    continue
+                amount = structure.amount
 
             previous_outstanding = _sum_prior_outstanding(student, category, before_month=month)
 
@@ -55,7 +61,7 @@ def generate_monthly_invoices(month: str, due_date: date, academic_year: str):
                 student=student,
                 fee_category=category,
                 month=month,
-                amount_due=structure.amount,
+                amount_due=amount,
                 previous_due=previous_outstanding,
                 due_date=due_date,
                 status=FeeInvoice.Status.UNPAID,
